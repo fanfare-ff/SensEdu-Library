@@ -2,9 +2,8 @@
   <img src="https://ik.imagekit.io/vladysor/SensEdu/SensEdu_seprepo.png?updatedAt=1741961204816">
 </p>
 
-<b>
-<p align="center">RADAR and Communication Development Shield for Arduino GIGA R1</p>
-</b>
+<p align="center"><b>Ultrasonic Ranging & Detection Development Shield for Arduino GIGA R1</b><br>
+Designed for education - easy entry into ultrasonic sensing and research</p>
 
 <p align="center">
   <a href="https://github.com/ShiegeChan/SensEdu/releases/" target="_blank">
