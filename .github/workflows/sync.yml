@@ -1,7 +1,10 @@
 on:
   schedule:
-    - cron: '0 * * * *' # every hour
+    - cron: '0 6 * * *' # every day at 6AM
   workflow_dispatch: # allow manual
+
+permissions:
+    contents: write
 
 jobs:
   sync:
@@ -12,25 +15,35 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: master
+
+      - name: Clean Library Repo
+        run: |
+          shopt -s extglob
+          rm -rf !(README.md|LICENSE|.github)
+          
+      - name: Checkout Upstream Repo
+        uses: actions/checkout@v4
+        with:
+          repository: ShiegeChan/SensEdu
+          ref: dev
+          path: upstream
+
+      - name: Copy SensEdu Library into Repo
+        run: |
+          cp -R upstream/libraries/SensEdu/. ./
+          rm -rf upstream
     
-      - name: Sync Original Folder
+      - name: Commit on Changes
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-        
-          git remote add upstream https://github.com/ShiegeChan/SensEdu.git
-          git fetch upstream
-
-          git checkout upstream/main -- libraries/SensEdu
-          cp -r -f libraries/SensEdu/* ./
-          rm -r libraries
-
+          
           git add .
 
-          if git diff-index --quiet HEAD --; then
+          if git diff --cached --quiet; then
             echo "No changes, exiting..."
             exit 0
           fi
           
-          git commit -m "Sync: Updates from original repo libraries/SensEdu"
+          git commit -m "Sync with SensEdu library upstream"
           git push origin master
