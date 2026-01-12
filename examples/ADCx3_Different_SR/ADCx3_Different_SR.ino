@@ -1,5 +1,4 @@
 #include "SensEdu.h"
-#include "SineLUT.h"
 
 // Internal library error container
 uint32_t lib_error = 0;
@@ -8,56 +7,61 @@ uint32_t lib_error = 0;
 /*                                  Settings                                  */
 /* -------------------------------------------------------------------------- */
 
-/* DAC */
-// LUT settings are in SineLUT.h
-#define DAC_SINE_FREQ     	32000                           // 32kHz
-#define DAC_SAMPLE_RATE     DAC_SINE_FREQ * sine_lut_size   // 64 samples per one sine cycle
+// Sampling Rate for each ADC
+#define ADC1_SR  250000
+#define ADC2_SR  100000
+#define ADC3_SR  65000
 
-DAC_Channel* dac_ch = DAC_CH1;
-SensEdu_DAC_Settings dac_settings = {
-    .dac_channel = dac_ch, 
-    .sampling_freq = DAC_SAMPLE_RATE,
-    .mem_address = (uint16_t*)sine_lut,
-    .mem_size = sine_lut_size,
-    .wave_mode = SENSEDU_DAC_MODE_BURST_WAVE,
-    .burst_num = dac_cycle_num
-};
+// For DMA you need to initialize a buffer to store conversion results
+// Use the macro SENSEDU_ADC_BUFFER(name, size)
+const uint16_t buf_size = 2048;
+SENSEDU_ADC_BUFFER(buf1, buf_size);
+SENSEDU_ADC_BUFFER(buf2, buf_size);
+SENSEDU_ADC_BUFFER(buf3, buf_size);
 
-/* ADC */
-const uint16_t mic_data_size = 2048*2;
-SENSEDU_ADC_BUFFER(mic12_data, mic_data_size);
-SENSEDU_ADC_BUFFER(mic34_data, mic_data_size);
-
+uint8_t adc_pins[3] = {A0, A1, A6};
 ADC_TypeDef* adc1 = ADC1;
-ADC_TypeDef* adc2 = ADC2;
-const uint8_t mic_num = 2;
-uint8_t mic12_pins[mic_num] = {A5, A4};
-uint8_t mic34_pins[mic_num] = {A1, A6};
-
 SensEdu_ADC_Settings adc1_settings = {
     .adc = adc1,
-    .pins = mic12_pins,
-    .pin_num = mic_num,
+    .pins = &adc_pins[0],
+    .pin_num = 1,
 
     .sr_mode = SENSEDU_ADC_SR_MODE_FIXED,
-    .sampling_rate_hz = 250000,
+    .sampling_rate_hz = ADC1_SR,
     
     .adc_mode = SENSEDU_ADC_MODE_DMA_NORMAL,
-    .mem_address = (uint16_t*)mic12_data,
-    .mem_size = mic_data_size
+    .mem_address = (uint16_t*)buf1,
+    .mem_size = buf_size
 };
 
+ADC_TypeDef* adc2 = ADC2;
 SensEdu_ADC_Settings adc2_settings = {
     .adc = adc2,
-    .pins = mic34_pins,
-    .pin_num = mic_num,
+    .pins = &adc_pins[1],
+    .pin_num = 1,
 
     .sr_mode = SENSEDU_ADC_SR_MODE_FIXED,
-    .sampling_rate_hz = 250000,
+    .sampling_rate_hz = ADC2_SR,
     
     .adc_mode = SENSEDU_ADC_MODE_DMA_NORMAL,
-    .mem_address = (uint16_t*)mic34_data,
-    .mem_size = mic_data_size
+    .mem_address = (uint16_t*)buf2,
+    .mem_size = buf_size
+};
+
+ADC_TypeDef* adc3 = ADC3;
+const uint8_t adc3_pin_num = 1;
+uint8_t adc3_pins[adc3_pin_num] = {A6};
+SensEdu_ADC_Settings adc3_settings = {
+    .adc = adc3,
+    .pins = &adc_pins[2],
+    .pin_num = 1,
+
+    .sr_mode = SENSEDU_ADC_SR_MODE_FIXED,
+    .sampling_rate_hz = ADC3_SR,
+    
+    .adc_mode = SENSEDU_ADC_MODE_DMA_NORMAL,
+    .mem_address = (uint16_t*)buf3,
+    .mem_size = buf_size
 };
 
 const uint8_t error_led = D86;
@@ -65,17 +69,16 @@ const uint8_t error_led = D86;
 /* -------------------------------------------------------------------------- */
 /*                                    Setup                                   */
 /* -------------------------------------------------------------------------- */
-
 void setup() {
-
     Serial.begin(115200);
-
-    SensEdu_DAC_Init(&dac_settings);
 
     SensEdu_ADC_Init(&adc1_settings);
     SensEdu_ADC_Init(&adc2_settings);
+    SensEdu_ADC_Init(&adc3_settings);
+
     SensEdu_ADC_Enable(adc1);
     SensEdu_ADC_Enable(adc2);
+    SensEdu_ADC_Enable(adc3);
 
     pinMode(error_led, OUTPUT);
     digitalWrite(error_led, HIGH);
@@ -86,7 +89,6 @@ void setup() {
 /* -------------------------------------------------------------------------- */
 /*                                    Loop                                    */
 /* -------------------------------------------------------------------------- */
-
 void loop() {
     // Wait for trigger character 't' from computing device
     char c;
@@ -100,22 +102,23 @@ void loop() {
         delay(1);
     }
 
-    // Start dac->adc sequence
-    SensEdu_DAC_Enable(dac_ch);
-    while (!SensEdu_DAC_GetBurstCompleteFlag(dac_ch));
-    SensEdu_DAC_ClearBurstCompleteFlag(dac_ch);
     SensEdu_ADC_Start(adc1);
     SensEdu_ADC_Start(adc2);
+    SensEdu_ADC_Start(adc3);
     
-    // Wait for the data and send it
+    // wait for the data and send it
     while (!SensEdu_ADC_IsDmaTransferComplete(adc1));
     SensEdu_ADC_ClearDmaTransferComplete(adc1);
 
     while (!SensEdu_ADC_IsDmaTransferComplete(adc2));
     SensEdu_ADC_ClearDmaTransferComplete(adc2);
 
-    serial_send_array((const uint8_t *) & mic12_data, mic_data_size << 1);
-    serial_send_array((const uint8_t *) & mic34_data, mic_data_size << 1);
+    while (!SensEdu_ADC_IsDmaTransferComplete(adc3));
+    SensEdu_ADC_ClearDmaTransferComplete(adc3);
+    
+    serial_send_array(buf1, buf_size, 32);
+    serial_send_array(buf2, buf_size, 32);
+    serial_send_array(buf3, buf_size, 32);
 
     check_lib_errors();
 }
@@ -134,10 +137,9 @@ void check_lib_errors() {
     }
 }
 
-// Send serial data in 32 byte chunks
-void serial_send_array(const uint8_t* data, size_t size) {
-    const size_t chunk_size = 32;
-	for (uint32_t i = 0; i < size/chunk_size; i++) {
-		Serial.write(data + chunk_size * i, chunk_size);
-	}
+void serial_send_array(uint16_t* data, const size_t data_length, const size_t chunk_size_byte) {
+    for (size_t i = 0; i < (data_length << 1); i += chunk_size_byte) {
+        size_t transfer_size = ((data_length << 1) - i < chunk_size_byte) ? ((data_length << 1) - i) : chunk_size_byte;
+        Serial.write((const uint8_t *)data + i, transfer_size);
+    }
 }
