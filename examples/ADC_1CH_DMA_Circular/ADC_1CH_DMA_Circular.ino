@@ -94,6 +94,10 @@ void loop() {
     }
 }
 
+/* -------------------------------------------------------------------------- */
+/*                              Functions                                     */
+/* -------------------------------------------------------------------------- */
+
 // Ensures buffer size is valid for ping-pong DMA
 static bool is_even(uint16_t size) {
     if (size % 2) return false;
