@@ -15,17 +15,18 @@ static const uint16_t CHUNK_SIZE = 75;
 static ADC_TypeDef* adc = ADC1;
 static const uint16_t SAMPLING_RATE_PER_CH = 44100;
 
-static uint8_t adc_pins[1] = {A0};
+static const uint16_t CHANNEL_NUM_PER_ADC = 3;
+static uint8_t adc_pins[CHANNEL_NUM_PER_ADC] = {A0, A1, A2};
 
 // DMA Settings
-static const uint16_t DMA_BUFFER_SIZE = CHUNK_SIZE * 2;
+static const uint16_t DMA_BUFFER_SIZE = CHUNK_SIZE * 2 * CHANNEL_NUM_PER_ADC;
 volatile SENSEDU_DMA_BUFFER(dma_buffer, DMA_BUFFER_SIZE);
 
 // Config Structure
 SensEdu_ADC_Settings adc_settings = {
     .adc = adc,
     .pins = adc_pins,
-    .pin_num = 1,
+    .pin_num = CHANNEL_NUM_PER_ADC,
 
     .sr_mode = SENSEDU_ADC_SR_MODE_FIXED,
     .sampling_rate_hz = SAMPLING_RATE_PER_CH,
@@ -56,7 +57,23 @@ void setup() {
 /*                                    Loop                                    */
 /* -------------------------------------------------------------------------- */
 
+// Stream control from MATLAB host:
+// 'S' = start/resume streaming, 'P' = pause streaming.
+static bool stream_enabled = true;
+
 void loop() {
+    process_stream_control();
+
+    if (!stream_enabled) {
+        if (SensEdu_ADC_IsDmaHalfTransferComplete(adc)) {
+            SensEdu_ADC_ClearDmaHalfTransferComplete(adc);
+        }
+        if (SensEdu_ADC_IsDmaTransferComplete(adc)) {
+            SensEdu_ADC_ClearDmaTransferComplete(adc);
+        }
+        return;
+    }
+
     if (SensEdu_ADC_IsDmaHalfTransferComplete(adc)) {
         SensEdu_ADC_ClearDmaHalfTransferComplete(adc);
         if (Serial) {
@@ -72,10 +89,22 @@ void loop() {
     }
 }
 
-// Transfers selected buffer in one write
+// Transfers selected buffer in one write.
 static void transfer_buf(volatile uint16_t* data, uint16_t data_length) {
     uint8_t* ptr = (uint8_t*)data;
     Serial.write(ptr, data_length * sizeof(uint16_t));
+}
+
+// Handles host stream control without blocking the DMA acquisition pipeline.
+static void process_stream_control() {
+    while (Serial.available() > 0) {
+        char c = Serial.read();
+        if (c == 'S') {
+            stream_enabled = true;
+        } else if (c == 'P') {
+            stream_enabled = false;
+        }
+    }
 }
 
 // Checks library error state
